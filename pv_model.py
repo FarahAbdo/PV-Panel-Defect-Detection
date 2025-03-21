@@ -56,7 +56,7 @@ def detect_defects(model, image, conf_threshold=0.25):
         image: Image to detect defects in (numpy array in BGR format)
         conf_threshold: Confidence threshold for detections
     Returns:
-        Annotated image, results object, and defect summary
+        Annotated image, results object, and defect counts
     """
     # Make a copy of the image for drawing on
     annotated_img = image.copy()
@@ -67,7 +67,7 @@ def detect_defects(model, image, conf_threshold=0.25):
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = model(rgb_image, conf=conf_threshold, verbose=False)[0]  # Get the first result
         
-        # Create a defect summary
+        # Create a defect counts dictionary (we'll still track counts but not display summary)
         defect_counts = {class_name: 0 for class_name in CLASS_NAMES}
         
         # Check if we have any detections
@@ -108,49 +108,6 @@ def detect_defects(model, image, conf_threshold=0.25):
     except Exception as e:
         st.error(f"Error during detection: {str(e)}")
         return annotated_img, None, {class_name: 0 for class_name in CLASS_NAMES}
-
-# Function to create a defect summary
-def create_defect_summary(defect_counts):
-    """Create a summary of detected defects"""
-    st.subheader("Defect Summary")
-    
-    # Filter out classes with zero counts
-    found_defects = {cls: count for cls, count in defect_counts.items() if count > 0}
-    
-    if not found_defects:
-        st.warning("No defects detected in the image. Try adjusting the confidence threshold or try a different image.")
-        return
-    
-    # Display defect counts
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**Defect Counts:**")
-        for cls, count in found_defects.items():
-            st.write(f"- {cls}: {count}")
-    
-    with col2:
-        # Create a simple bar chart for detected defects
-        if found_defects:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            classes = list(found_defects.keys())
-            counts = list(found_defects.values())
-            
-            # Safely get colors for each class
-            colors = []
-            for cls in classes:
-                try:
-                    idx = CLASS_NAMES.index(cls)
-                    colors.append(rgba_to_hex(COLORS[idx]))
-                except ValueError:
-                    colors.append('#777777')  # Default gray if class not found
-            
-            bars = ax.bar(classes, counts, color=colors)
-            ax.set_ylabel('Count')
-            ax.set_title('Defect Counts')
-            plt.xticks(rotation=45, ha='right')
-            plt.tight_layout()
-            st.pyplot(fig)
 
 # Helper function to convert RGB to hex color
 def rgba_to_hex(rgba):
@@ -195,7 +152,7 @@ def main():
     st.title("PV Panel Defect Detection")
     st.markdown("""
     Upload an image of a photovoltaic panel to detect possible defects.
-    This application uses a YOLOv8 model trained to identify 6 different types of PV panel defects.
+    This application uses a model trained to identify 5 different types of PV panel defects.
     """)
     
     # Sidebar for defect classes information only
@@ -222,16 +179,26 @@ def main():
         st.info("Please make sure the model file exists in the same directory as this app.")
         return
     
-    # File uploader for image
-    uploaded_file = st.file_uploader("Upload a PV panel image", type=["jpg", "jpeg", "png"])
+    # Radio button to choose between upload and camera
+    input_method = st.radio(
+        "Choose input method:",
+        ["Upload Image", "Take Photo"]
+    )
     
-    # Camera input option (only works on devices with cameras)
-    camera_input = st.camera_input("Or take a photo with your camera")
+    # Initialize variables
+    uploaded_file = None
+    camera_input = None
+    
+    # Show the appropriate input method based on selection
+    if input_method == "Upload Image":
+        uploaded_file = st.file_uploader("Upload a PV panel image", type=["jpg", "jpeg", "png"])
+    else:  # Take Photo
+        camera_input = st.camera_input("Take a photo with your camera")
     
     # Process the uploaded image or camera image
-    if uploaded_file is not None or camera_input is not None:
-        input_file = uploaded_file if uploaded_file is not None else camera_input
-        
+    input_file = uploaded_file if uploaded_file is not None else camera_input
+    
+    if input_file is not None:
         try:
             # Read the image
             file_bytes = np.asarray(bytearray(input_file.read()), dtype=np.uint8)
@@ -260,8 +227,7 @@ def main():
             if debug_mode and results is not None:
                 display_debug_info(model, results)
             
-            # Create and display defect summary
-            create_defect_summary(defect_counts)
+            # Note: We've removed the create_defect_summary call here
             
             # Add option to download the annotated image
             annotated_img_rgb = cv2.cvtColor(annotated_img, cv2.COLOR_BGR2RGB)
@@ -314,8 +280,7 @@ def main():
         "ShortCircuitCell (LowPowerCell)": "Individual cells with electrical shorts, resulting in reduced power output.",
         "Crack": "Visible cracks in the solar cells, which can expand over time and reduce panel efficiency.",
         "MicroCrack": "Smaller cracks that may not be visible to the naked eye but affect performance.",
-        "OtherError": "Miscellaneous defects not falling into other categories.",
-        "Examined": "Areas that have been inspected and are functioning normally."
+        "OtherError": "Miscellaneous defects not falling into other categories."
     }
     
     # Display explanations in an expander
@@ -325,7 +290,6 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.markdown("Built with Streamlit and YOLOv8")
     
 # Run the app
 if __name__ == "__main__":
